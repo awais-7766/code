@@ -1,30 +1,1267 @@
 <!DOCTYPE html>
-<html>
-
+<html lang="en">
 <head>
-    <meta charset="utf-8" />
-    <title>Mittyverse AR VR Workshop</title>
+    <meta charset="utf-8">
+    <title>Cozy Coffee Shop - A-Frame VR Experience</title>
+    <meta name="description" content="High-fidelity WebXR Coffee Shop experience. Optimized for Desktop and Meta Quest 3S.">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+
+    <!-- A-Frame Library (v1.7.1) -->
     <script src="https://aframe.io/releases/1.7.1/aframe.min.js"></script>
+
+    <!-- Google Fonts for premium typography -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;700;800&display=swap" rel="stylesheet">
+
+    <!-- FontAwesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <style>
+        :root {
+            --bg-glass: rgba(13, 11, 20, 0.65);
+            --bg-glass-hover: rgba(22, 19, 32, 0.85);
+            --border-glass: rgba(255, 255, 255, 0.08);
+            --accent-warm: #d4a373; /* Warm coffee brown */
+            --accent-warm-rgb: 212, 163, 115;
+            --accent-tech: #00f0ff; /* Electric cyan for VR controls */
+            --text-primary: #f8f9fa;
+            --text-secondary: #adb5bd;
+        }
+
+        * {
+            box-sizing: border-box;
+            user-select: none;
+        }
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            font-family: 'Inter', sans-serif;
+            background-color: #050508;
+            color: var(--text-primary);
+        }
+
+        /* Loading Screen & Intro Overlay */
+        #intro-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 9999;
+            background: radial-gradient(circle at center, #1b1724 0%, #08070b 100%);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+            transition: opacity 0.8s cubic-bezier(0.25, 1, 0.5, 1), visibility 0.8s;
+            overflow-y: auto;
+        }
+
+        .intro-card {
+            width: 100%;
+            max-width: 650px;
+            background: var(--bg-glass);
+            border: 1px solid var(--border-glass);
+            border-radius: 24px;
+            padding: 40px;
+            text-align: center;
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+            animation: cardAppear 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+
+        @keyframes cardAppear {
+            from { opacity: 0; transform: scale(0.92) translateY(20px); }
+            to { opacity: 1; transform: scale(1) translateY(0); }
+        }
+
+        h1 {
+            font-family: 'Outfit', sans-serif;
+            font-size: 2.8rem;
+            font-weight: 800;
+            margin: 0 0 10px 0;
+            background: linear-gradient(135deg, #fff 30%, var(--accent-warm) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: -1px;
+        }
+
+        .subtitle {
+            font-size: 1.1rem;
+            color: var(--text-secondary);
+            margin-bottom: 30px;
+            font-weight: 300;
+        }
+
+        .divider {
+            height: 1px;
+            background: linear-gradient(90deg, transparent, var(--border-glass), transparent);
+            margin: 20px 0;
+        }
+
+        /* Controls Section Grid */
+        .controls-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            text-align: left;
+            margin-bottom: 35px;
+        }
+
+        @media (max-width: 550px) {
+            .controls-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .control-column {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.03);
+            border-radius: 16px;
+            padding: 20px;
+        }
+
+        .control-column h3 {
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.2rem;
+            margin: 0 0 15px 0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .column-pc h3 { color: var(--accent-warm); }
+        .column-vr h3 { color: var(--accent-tech); }
+
+        .control-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 12px;
+            font-size: 0.9rem;
+        }
+
+        .control-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .key-cap {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 6px;
+            padding: 3px 8px;
+            font-family: monospace;
+            font-weight: bold;
+            font-size: 0.8rem;
+            margin-right: 12px;
+            min-width: 32px;
+            text-align: center;
+            box-shadow: 0 2px 0 rgba(0, 0, 0, 0.3);
+        }
+
+        .mouse-icon, .stick-icon {
+            font-size: 1.1rem;
+            margin-right: 12px;
+            width: 32px;
+            text-align: center;
+            color: rgba(255, 255, 255, 0.7);
+        }
+
+        .control-desc {
+            color: var(--text-secondary);
+        }
+
+        /* Buttons styling */
+        .btn-primary {
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.2rem;
+            font-weight: 600;
+            padding: 16px 40px;
+            border-radius: 50px;
+            border: none;
+            background: linear-gradient(135deg, var(--accent-warm) 0%, #b58353 100%);
+            color: #1a1625;
+            cursor: pointer;
+            box-shadow: 0 8px 24px rgba(212, 163, 115, 0.25);
+            transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+            display: inline-flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 12px 30px rgba(212, 163, 115, 0.4);
+            filter: brightness(1.1);
+        }
+
+        .btn-primary:active {
+            transform: translateY(1px);
+        }
+
+        /* Bottom Controls Dock during gameplay */
+        #hud-dock {
+            position: fixed;
+            bottom: 24px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: var(--bg-glass);
+            border: 1px solid var(--border-glass);
+            padding: 10px 20px;
+            border-radius: 40px;
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.5s;
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        #hud-dock.show {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .hud-btn {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: var(--text-primary);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            position: relative;
+        }
+
+        .hud-btn:hover {
+            background: rgba(255, 255, 255, 0.15);
+            border-color: var(--accent-warm);
+            color: var(--accent-warm);
+            transform: scale(1.08);
+        }
+
+        .hud-btn:active {
+            transform: scale(0.95);
+        }
+
+        /* Tooltips for HUD buttons */
+        .hud-btn::after {
+            content: attr(data-tooltip);
+            position: absolute;
+            bottom: 55px;
+            left: 50%;
+            transform: translateX(-50%) translateY(5px);
+            background: rgba(10, 8, 15, 0.9);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: var(--text-primary);
+            padding: 6px 12px;
+            border-radius: 8px;
+            font-size: 0.75rem;
+            white-space: nowrap;
+            opacity: 0;
+            visibility: hidden;
+            pointer-events: none;
+            transition: all 0.2s ease;
+        }
+
+        .hud-btn:hover::after {
+            opacity: 1;
+            visibility: visible;
+            transform: translateX(-50%) translateY(0);
+        }
+
+        .hud-btn.active {
+            background: rgba(var(--accent-warm-rgb), 0.25);
+            border-color: var(--accent-warm);
+            color: var(--accent-warm);
+        }
+
+        .hud-divider {
+            width: 1px;
+            height: 24px;
+            background: rgba(255, 255, 255, 0.15);
+            margin: 0 4px;
+        }
+
+        /* VR status indicator in VR mode */
+        #vr-indicator {
+            position: fixed;
+            top: 24px;
+            right: 24px;
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(0, 240, 255, 0.15);
+            border: 1px solid var(--accent-tech);
+            color: var(--accent-tech);
+            padding: 8px 16px;
+            border-radius: 30px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            backdrop-filter: blur(8px);
+            display: none;
+        }
+
+        /* Crosshair for pointer lock look-controls */
+        #cursor-crosshair {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.5);
+            border: 1.5px solid rgba(0, 0, 0, 0.3);
+            pointer-events: none;
+            z-index: 99;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        #cursor-crosshair.show {
+            opacity: 1;
+        }
+
+        /* VR Overlay message/notification */
+        #notification {
+            position: fixed;
+            top: 24px;
+            left: 50%;
+            transform: translateX(-50%) translateY(-50px);
+            z-index: 1000;
+            background: rgba(20, 18, 28, 0.9);
+            border: 1px solid var(--accent-warm);
+            color: var(--text-primary);
+            padding: 12px 24px;
+            border-radius: 30px;
+            font-size: 0.9rem;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+            opacity: 0;
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            pointer-events: none;
+        }
+
+        #notification.show {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+        }
+
+        /* Speed multiplier display in HUD */
+        #speed-display {
+            font-family: 'Outfit', sans-serif;
+            font-size: 0.85rem;
+            font-weight: 700;
+        }
+    </style>
+
+    <!-- locomotion controls logic script -->
+    <script>
+        // Custom Controls A-Frame Component
+        AFRAME.registerComponent('custom-controls', {
+            schema: {
+                speed: {type: 'number', default: 2.5},         // Movement speed (m/s)
+                turnSpeed: {type: 'number', default: 55},      // Turn speed (deg/s) for smooth turning
+                snapTurn: {type: 'boolean', default: true},    // Use snap turn in VR
+                snapAngle: {type: 'number', default: 45},      // Snap turn rotation amount (deg)
+                snapInterval: {type: 'number', default: 300},  // Throttle delay between snaps (ms)
+                ghostMode: {type: 'boolean', default: false}   // True to bypass floor collisions (fly mode)
+            },
+
+            init: function () {
+                this.keys = {};
+                this.leftStick = {x: 0, y: 0};
+                this.rightStick = {x: 0, y: 0};
+                this.lastSnapTime = 0;
+                
+                // Keyboard Bindings
+                window.addEventListener('keydown', (e) => {
+                    this.keys[e.key.toLowerCase()] = true;
+                });
+                window.addEventListener('keyup', (e) => {
+                    this.keys[e.key.toLowerCase()] = false;
+                });
+
+                // Get camera and rig
+                this.camera = document.querySelector('[camera]');
+                this.rig = this.el;
+
+                // Setup VR controller listeners once controllers connect
+                this.setupVRControllerListeners();
+
+                // Teleportation flash event trigger
+                this.el.addEventListener('teleport-rig', (evt) => {
+                    const newPos = evt.detail.position;
+                    this.rig.setAttribute('position', {
+                        x: newPos.x,
+                        y: this.data.ghostMode ? newPos.y : 0, // Align to floor unless in ghost mode
+                        z: newPos.z
+                    });
+                });
+            },
+
+            setupVRControllerListeners: function () {
+                // Query left and right controller entities
+                const leftCtrl = document.getElementById('left-controller');
+                const rightCtrl = document.getElementById('right-controller');
+
+                if (leftCtrl) {
+                    leftCtrl.addEventListener('thumbstickmoved', (evt) => {
+                        this.leftStick.x = evt.detail.x;
+                        this.leftStick.y = evt.detail.y;
+                    });
+                    leftCtrl.addEventListener('thumbsticktouched', () => {});
+                    leftCtrl.addEventListener('thumbstickreleased', () => {
+                        this.leftStick.x = 0;
+                        this.leftStick.y = 0;
+                    });
+                }
+
+                if (rightCtrl) {
+                    rightCtrl.addEventListener('thumbstickmoved', (evt) => {
+                        this.rightStick.x = evt.detail.x;
+                        this.rightStick.y = evt.detail.y;
+                    });
+                    rightCtrl.addEventListener('thumbstickreleased', () => {
+                        this.rightStick.x = 0;
+                        this.rightStick.y = 0;
+                    });
+                }
+            },
+
+            tick: function (time, timeDelta) {
+                const dt = timeDelta / 1000;
+                if (dt <= 0 || dt > 0.1) return; // filter out stutter frames
+
+                // 1. Gather Keyboard inputs
+                let kx = 0;
+                let kz = 0;
+                if (this.keys['w'] || this.keys['arrowup']) kz -= 1;
+                if (this.keys['s'] || this.keys['arrowdown']) kz += 1;
+                if (this.keys['a'] || this.keys['arrowleft']) kx -= 1;
+                if (this.keys['d'] || this.keys['arrowright']) kx += 1;
+
+                // Normalize keyboard direction
+                let moveX = kx;
+                let moveZ = kz;
+                const len = Math.sqrt(moveX * moveX + moveZ * moveZ);
+                if (len > 0) {
+                    moveX /= len;
+                    moveZ /= len;
+                }
+
+                // Add VR controller left thumbstick inputs
+                if (Math.abs(this.leftStick.x) > 0.1 || Math.abs(this.leftStick.y) > 0.1) {
+                    moveX += this.leftStick.x;
+                    moveZ += this.leftStick.y;
+                }
+
+                // 2. Perform Movement relative to camera heading
+                if (Math.abs(moveX) > 0.05 || Math.abs(moveZ) > 0.05) {
+                    // Extract camera world direction
+                    const camDir = new THREE.Vector3();
+                    this.camera.object3D.getWorldDirection(camDir);
+                    
+                    if (!this.data.ghostMode) {
+                        camDir.y = 0; // Lock movement strictly to the floor plane (XZ)
+                    }
+                    camDir.normalize();
+
+                    // Perpendicular right vector
+                    const camRight = new THREE.Vector3(-camDir.z, 0, camDir.x);
+                    if (this.data.ghostMode) {
+                        // In ghost/fly mode, get true 3D camera right vector
+                        this.camera.object3D.getWorldDirection(new THREE.Vector3()); // refresh
+                        const upVec = new THREE.Vector3(0, 1, 0);
+                        camRight.crossVectors(upVec, camDir).negate().normalize();
+                    }
+
+                    // Combined movement vector
+                    const velocity = new THREE.Vector3();
+                    velocity.addScaledVector(camDir, moveZ);
+                    velocity.addScaledVector(camRight, moveX);
+
+                    // Clamp to maximum magnitude of 1.0 to prevent diagonal speed boosts
+                    if (velocity.lengthSq() > 1.0) {
+                        velocity.normalize();
+                    }
+
+                    // Update rig position
+                    const currentPos = this.rig.getAttribute('position');
+                    this.rig.setAttribute('position', {
+                        x: currentPos.x + velocity.x * this.data.speed * dt,
+                        y: currentPos.y + velocity.y * this.data.speed * dt,
+                        z: currentPos.z + velocity.z * this.data.speed * dt
+                    });
+                }
+
+                // 3. VR Rotation (Right Controller Thumbstick)
+                if (Math.abs(this.rightStick.x) > 0.25) {
+                    const currentRot = this.rig.getAttribute('rotation');
+                    if (this.data.snapTurn) {
+                        // Snap turn throttle check
+                        if (time - this.lastSnapTime > this.data.snapInterval) {
+                            const angle = this.rightStick.x > 0 ? -this.data.snapAngle : this.data.snapAngle;
+                            this.rig.setAttribute('rotation', {
+                                x: currentRot.x,
+                                y: currentRot.y + angle,
+                                z: currentRot.z
+                            });
+                            this.lastSnapTime = time;
+                            
+                            // Trigger controller haptic pulse if supported
+                            const rightControllerEntity = document.getElementById('right-controller');
+                            if (rightControllerEntity && rightControllerEntity.components['oculus-touch-controls']) {
+                                const gamepad = rightControllerEntity.components['oculus-touch-controls'].gamepad;
+                                if (gamepad && gamepad.hapticActuators && gamepad.hapticActuators[0]) {
+                                    gamepad.hapticActuators[0].pulse(0.1, 80);
+                                }
+                            }
+                        }
+                    } else {
+                        // Smooth Turn
+                        const turnAmount = -this.rightStick.x * this.data.turnSpeed * dt;
+                        this.rig.setAttribute('rotation', {
+                            x: currentRot.x,
+                            y: currentRot.y + turnAmount,
+                            z: currentRot.z
+                        });
+                    }
+                }
+            }
+        });
+
+        // Clickable Waypoint Component for comfortable Teleportation
+        AFRAME.registerComponent('waypoint', {
+            init: function () {
+                // Set color animation properties
+                this.el.setAttribute('material', {
+                    color: '#00ffff',
+                    emissive: '#008888',
+                    opacity: 0.6,
+                    transparent: true,
+                    shader: 'flat'
+                });
+
+                // Hover states
+                this.el.addEventListener('mouseenter', () => {
+                    this.el.setAttribute('material', 'color', '#ffaa00');
+                    this.el.setAttribute('material', 'emissive', '#995500');
+                    this.el.setAttribute('scale', '1.1 1.1 1.1');
+                    
+                    const marker = this.el.querySelector('.waypoint-marker');
+                    if (marker) marker.setAttribute('animation__pulse', {
+                        property: 'position',
+                        to: '0 0.8 0',
+                        dir: 'alternate',
+                        dur: 400,
+                        loop: true
+                    });
+                });
+
+                this.el.addEventListener('mouseleave', () => {
+                    this.el.setAttribute('material', 'color', '#00ffff');
+                    this.el.setAttribute('material', 'emissive', '#008888');
+                    this.el.setAttribute('scale', '1 1 1');
+                    
+                    const marker = this.el.querySelector('.waypoint-marker');
+                    if (marker) {
+                        marker.removeAttribute('animation__pulse');
+                        marker.setAttribute('position', '0 0.4 0');
+                    }
+                });
+
+                // On select / click
+                this.el.addEventListener('click', () => {
+                    const targetPos = this.el.getAttribute('position');
+                    const rig = document.getElementById('rig');
+                    
+                    // Trigger custom teleport event on the rig
+                    rig.emit('teleport-rig', { position: targetPos });
+
+                    // Visual screen flash indicator
+                    const cameraFlash = document.getElementById('camera-flash');
+                    if (cameraFlash) {
+                        cameraFlash.emit('flash-teleport');
+                    }
+
+                    // Send notification
+                    showNotification('Teleported to ' + this.el.getAttribute('data-name'));
+                });
+            }
+        });
+
+        // Interactive Brewing Coffee Machine Component
+        AFRAME.registerComponent('coffee-brewer', {
+            init: function () {
+                this.brewing = false;
+                this.steamContainer = document.getElementById('steam-particles');
+                this.coffeeFill = document.getElementById('coffee-liquid');
+                this.mug = document.getElementById('interactive-mug');
+                
+                this.el.addEventListener('click', () => {
+                    if (this.brewing) return;
+                    this.brewing = true;
+                    showNotification('Brewing coffee... Espresso machine active!');
+                    
+                    // Play brewing sound
+                    const soundEl = document.getElementById('brew-sound');
+                    if (soundEl && soundEl.components.sound) {
+                        soundEl.components.sound.playSound();
+                    }
+
+                    // Reset coffee cup liquid level
+                    if (this.coffeeFill) {
+                        this.coffeeFill.setAttribute('position', '0 -0.06 0');
+                        this.coffeeFill.setAttribute('visible', 'true');
+                    }
+
+                    // Emit steam particles (toggle visibility and start scaling spheres)
+                    if (this.steamContainer) {
+                        this.steamContainer.setAttribute('visible', 'true');
+                        this.steamContainer.querySelectorAll('a-sphere').forEach((sp, idx) => {
+                            sp.setAttribute('visible', 'true');
+                            sp.setAttribute('animation__rise', {
+                                property: 'position',
+                                to: (Math.random() * 0.1 - 0.05) + ' 0.8 ' + (Math.random() * 0.1 - 0.05),
+                                dur: 1200 + (idx * 200),
+                                loop: true,
+                                easing: 'easeOutQuad'
+                            });
+                            sp.setAttribute('animation__fade', {
+                                property: 'scale',
+                                from: '0.01 0.01 0.01',
+                                to: '0.06 0.06 0.06',
+                                dur: 1200 + (idx * 200),
+                                loop: true,
+                                easing: 'easeOutQuad'
+                            });
+                        });
+                    }
+
+                    // Complete coffee brewing animation sequence
+                    setTimeout(() => {
+                        // Slowly fill mug with brown liquid
+                        if (this.coffeeFill) {
+                            this.coffeeFill.setAttribute('animation__fill', {
+                                property: 'position',
+                                to: '0 0.03 0',
+                                dur: 3500,
+                                easing: 'easeInOutQuad'
+                            });
+                        }
+                    }, 1000);
+
+                    // Finalize brewing process
+                    setTimeout(() => {
+                        this.brewing = false;
+                        showNotification('Coffee is ready! Take a sip ☕');
+                        
+                        if (this.steamContainer) {
+                            this.steamContainer.setAttribute('visible', 'false');
+                            this.steamContainer.querySelectorAll('a-sphere').forEach((sp) => {
+                                sp.removeAttribute('animation__rise');
+                                sp.removeAttribute('animation__fade');
+                                sp.setAttribute('visible', 'false');
+                            });
+                        }
+                        
+                        // Make mug glowing slightly to indicate it is ready
+                        if (this.mug) {
+                            this.mug.setAttribute('animation__glow', {
+                                property: 'material.emissive',
+                                from: '#000000',
+                                to: '#5c4033',
+                                dur: 1000,
+                                dir: 'alternate',
+                                loop: true
+                            });
+                        }
+                    }, 6500);
+                });
+
+                // Drinking coffee interaction
+                if (this.mug) {
+                    this.mug.addEventListener('click', (e) => {
+                        // Prevent click propagation to brewer
+                        e.stopPropagation();
+                        
+                        if (this.brewing) return;
+                        
+                        if (this.coffeeFill && this.coffeeFill.getAttribute('position').y > 0) {
+                            showNotification('Mmm, delicious coffee! ☕');
+                            this.coffeeFill.setAttribute('visible', 'false');
+                            this.coffeeFill.setAttribute('position', '0 -0.06 0');
+                            this.coffeeFill.removeAttribute('animation__fill');
+                            this.mug.removeAttribute('animation__glow');
+                            this.mug.setAttribute('material', 'emissive', '#000000');
+                        } else {
+                            showNotification('The mug is empty. Brew some espresso first!');
+                        }
+                    });
+                }
+            }
+        });
+    </script>
 </head>
-
 <body>
-    <a-scene>
 
-        <a-sky color="green"></a-sky>
-        <a-box position="-1 -0.5 -3" rotation="0 45 0" color="#4CC3D9"></a-box>
-        <a-sphere position="0 0.25 -5" radius="1.25" color="#EF2D5E"></a-sphere>
-        <a-cylinder position="1 -0.25 -3" radius="0.5" height="1.5" color="#FFC65D"></a-cylinder>
-        <a-plane position="0 -1 -4" rotation="-90 0 0" width="4" height="4" color="#7BC8A4"></a-plane>
+    <!-- A-Frame VR Scene -->
+    <a-scene 
+        renderer="antialias: true; colorManagement: true; logarithmicDepthBuffer: false;"
+        light="defaultLightsEnabled: false"
+        loading-screen="dotsColor: #d4a373; backgroundColor: #0a080f"
+        cursor="rayOrigin: mouse; fuse: false"
+        raycaster="objects: .clickable"
+        xr-mode-ui="XRButtonClass: a-xr-mode-ui-custom">
 
-        <a-image src="https://raw.githubusercontent.com/alluringxstalwart/SourceYISL/main/Landscape1.png"
-            position="0 5 -10" width="25" height="7.5"></a-image>
+        <!-- Preloaded assets -->
+        <a-assets timeout="45000">
+            <!-- Coffee Shop 3D model files -->
+            <a-asset-item id="coffeshop-obj" src="coffeshop.obj"></a-asset-item>
+            <a-asset-item id="coffeshop-mtl" src="coffeshop.mtl"></a-asset-item>
 
-        <a-text value="Mittyverse AR VR Workshop" position="0 9.5 -10" align="center" color="white" font="mozillavr"
-            width="10" height="5" anchor="center">
-        </a-text>
+            <!-- Sound assets -->
+            <!-- Lofi coffee shop ambient background music -->
+            <audio id="ambient-audio" src="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" loop="true" crossorigin="anonymous"></audio>
+            <!-- Brew coffee machine sound effect -->
+            <audio id="brew-sound-src" src="https://assets.mixkit.co/active_storage/sfx/2568/2568-84.wav" crossorigin="anonymous"></audio>
+        </a-assets>
 
+        <!-- SOUND ENTITIES -->
+        <a-entity id="ambient-music" sound="src: #ambient-audio; volume: 0.35; loop: true; positional: false"></a-entity>
+
+        <!-- CAMERA & PLAYER CONTROLLERS RIG -->
+        <!-- Center point of the raw obj is offset. We position the model at an offset so the center falls at (0, 0) and floor falls at Y=0. -->
+        <a-entity id="rig" position="0 0 0" rotation="0 0 0" custom-controls="speed: 2.5; turnSpeed: 55; snapTurn: true">
+            <!-- Camera (User Head) -->
+            <a-entity id="camera" camera position="0 1.65 0" look-controls="pointerLockEnabled: false">
+                <!-- Visual Screen Teleport Flash (Fade overlay) -->
+                <a-plane id="camera-flash" 
+                         position="0 0 -0.1" 
+                         width="0.2" 
+                         height="0.2" 
+                         material="color: #ffffff; opacity: 0; transparent: true; shader: flat" 
+                         visible="false"
+                         animation__teleport="property: material.opacity; from: 0.8; to: 0; dur: 350; startEvents: flash-teleport">
+                </a-plane>
+            </a-entity>
+
+            <!-- LEFT VR CONTROLLER (Quest 3S Left) -->
+            <!-- Handles Left Joystick Movement, provides a visible pointer line and custom tooltip indicators -->
+            <a-entity id="left-controller" 
+                      oculus-touch-controls="hand: left" 
+                      laser-controls="hand: left"
+                      raycaster="objects: .clickable; showLine: true; far: 20; lineColor: #00ffff"
+                      line="color: #00ffff; opacity: 0.4">
+                <!-- VR Label HUD tooltip helper -->
+                <a-text value="Move Thumbstick: Walk\nTrigger: Select" 
+                        position="0 0.08 0.15" 
+                        rotation="-45 0 0" 
+                        color="#ffffff" 
+                        align="center" 
+                        width="0.35" 
+                        wrap-count="20"
+                        bg-color="#000000"
+                        visible="false">
+                </a-text>
+            </a-entity>
+
+            <!-- RIGHT VR CONTROLLER (Quest 3S Right) -->
+            <!-- Handles Right Joystick Turning, provides a laser beam for interactive click items -->
+            <a-entity id="right-controller" 
+                      oculus-touch-controls="hand: right" 
+                      laser-controls="hand: right"
+                      raycaster="objects: .clickable; showLine: true; far: 20; lineColor: #00ffff"
+                      line="color: #00ffff; opacity: 0.4">
+                <!-- VR Label HUD tooltip helper -->
+                <a-text value="Thumbstick X: Turn\nTrigger: Select" 
+                        position="0 0.08 0.15" 
+                        rotation="-45 0 0" 
+                        color="#ffffff" 
+                        align="center" 
+                        width="0.35" 
+                        wrap-count="20"
+                        visible="false">
+                </a-text>
+            </a-entity>
+        </a-entity>
+
+
+        <!-- ====== 3D WORLD LIGHTING DESIGN ====== -->
+        <!-- Global soft sky ambient light (warm interior tone) -->
+        <a-entity light="type: ambient; color: #ece2d0; intensity: 0.45"></a-entity>
+        
+        <!-- Sun (Directional sunlight passing through glass windows, casting shadows) -->
+        <a-entity light="type: directional; color: #fff1e0; intensity: 0.75; castShadow: true; shadowCameraLeft: -25; shadowCameraRight: 25; shadowCameraTop: 25; shadowCameraBottom: -25" position="15 20 -10"></a-entity>
+
+        <!-- Cozy interior warm spot lights to highlight counter and lounge tables -->
+        <a-entity light="type: spot; color: #ff9d42; intensity: 1.5; distance: 8; angle: 45; penumbra: 0.5" position="0.3 3.5 4.5" rotation="-90 0 0"></a-entity>
+        <a-entity light="type: spot; color: #ff9d42; intensity: 1.5; distance: 8; angle: 45; penumbra: 0.5" position="-2.5 3.5 -0.5" rotation="-90 0 0"></a-entity>
+        <a-entity light="type: spot; color: #ffd1a4; intensity: 1.2; distance: 10; angle: 50; penumbra: 0.3" position="4.2 3.8 -4.8" rotation="-90 0 0"></a-entity>
+
+
+        <!-- ====== 3D COFFEE SHOP MODEL ====== -->
+        <!-- Shift offsets: X=35.5, Y=-108.5, Z=25.5 to align origin to center building, floor to Y=0 -->
+        <a-entity id="coffeeshop-model"
+                  obj-model="obj: #coffeshop-obj; mtl: #coffeshop-mtl" 
+                  position="35.5 -108.5 25.5" 
+                  scale="1 1 1"
+                  shadow="receive: true; cast: true">
+        </a-entity>
+
+
+        <!-- ====== ENHANCED ENVIRONMENT DETAILS ====== -->
+        <!-- Solid ground helper in case the model's terrain boundary ends -->
+        <a-plane position="0 -0.05 0" rotation="-90 0 0" width="300" height="300" color="#18161f" material="roughness: 0.9; metalness: 0.1" shadow="receive: true"></a-plane>
+
+        <!-- Beautiful skybox gradient -->
+        <a-sky material="shader: gradientshader; topColor: #08060c; bottomColor: #1a1523" geometry="radius: 500"></a-sky>
+
+        <!-- A-Frame Custom Sky Gradient Shader -->
+        <script>
+            AFRAME.registerShader('gradientshader', {
+                schema: {
+                    topColor: {type: 'color', default: '#08060c', is: 'uniform'},
+                    bottomColor: {type: 'color', default: '#1a1523', is: 'uniform'}
+                },
+                vertexShader: [
+                    'varying vec3 vWorldPosition;',
+                    'void main() {',
+                    '  vec4 worldPosition = modelMatrix * vec4(position, 1.0);',
+                    '  vWorldPosition = worldPosition.xyz;',
+                    '  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);',
+                    '}'
+                ].join('\n'),
+                fragmentShader: [
+                    'uniform vec3 topColor;',
+                    'uniform vec3 bottomColor;',
+                    'varying vec3 vWorldPosition;',
+                    'void main() {',
+                    '  float h = normalize(vWorldPosition + vec3(0.0, 50.0, 0.0)).y;',
+                    '  gl_FragColor = vec4(mix(bottomColor, topColor, max(h, 0.0)), 1.0);',
+                    '}'
+                ].join('\n')
+            });
+        </script>
+
+
+        <!-- ====== INTERACTIVE TELEPORT WAYPOINTS ====== -->
+        <!-- Lounge Area Waypoint (Center of Cafe) -->
+        <a-entity class="clickable" waypoint position="0.5 0.01 -0.5" data-name="Lounge Lounge" data-tooltip="Teleport to Lounge">
+            <a-cylinder radius="0.45" height="0.04" material="shader: flat; transparent: true"></a-cylinder>
+            <a-torus class="waypoint-marker" radius="0.38" radius-tubular="0.025" rotation="90 0 0" position="0 0.4 0" material="color: #00ffff; emissive: #00ffff; shader: flat"
+                      animation="property: rotation; to: 90 360 0; loop: true; dur: 8000; easing: linear">
+            </a-torus>
+            <!-- Label above waypoint -->
+            <a-text value="Lounge" position="0 1.1 0" align="center" width="2.5" color="#00ffff" font="monoid" side="double"></a-text>
+        </a-entity>
+
+        <!-- Espresso Bar & Counter Waypoint -->
+        <a-entity class="clickable" waypoint position="-1.5 0.01 4.2" data-name="Bar Counter" data-tooltip="Teleport to Counter">
+            <a-cylinder radius="0.45" height="0.04" material="shader: flat; transparent: true"></a-cylinder>
+            <a-torus class="waypoint-marker" radius="0.38" radius-tubular="0.025" rotation="90 0 0" position="0 0.4 0" material="color: #00ffff; emissive: #00ffff; shader: flat"
+                      animation="property: rotation; to: 90 360 0; loop: true; dur: 8000; easing: linear">
+            </a-torus>
+            <a-text value="Order Counter" position="0 1.1 0" align="center" width="2.5" color="#00ffff" font="monoid" side="double"></a-text>
+        </a-entity>
+
+        <!-- Patio / Outdoor Entrance Waypoint -->
+        <a-entity class="clickable" waypoint position="5.2 0.01 -5.2" data-name="Sunlit Patio" data-tooltip="Teleport to Patio">
+            <a-cylinder radius="0.45" height="0.04" material="shader: flat; transparent: true"></a-cylinder>
+            <a-torus class="waypoint-marker" radius="0.38" radius-tubular="0.025" rotation="90 0 0" position="0 0.4 0" material="color: #00ffff; emissive: #00ffff; shader: flat"
+                      animation="property: rotation; to: 90 360 0; loop: true; dur: 8000; easing: linear">
+            </a-torus>
+            <a-text value="Patio" position="0 1.1 0" align="center" width="2.5" color="#00ffff" font="monoid" side="double"></a-text>
+        </a-entity>
+
+
+        <!-- ====== INTERACTIVE ESPRESSO BREWING MACHINE ====== -->
+        <!-- A button/brewing machine placed directly on the counter bar (near X=-1.5, Z=4.2) -->
+        <!-- Adjusted coordinates to rest on top of the counter -->
+        <a-entity id="espresso-station" position="-1.5 0.95 5.5">
+            <!-- Machine base body -->
+            <a-box width="0.4" height="0.4" depth="0.3" color="#33333b" material="roughness: 0.2; metalness: 0.8"></a-box>
+            <!-- Chrome highlights -->
+            <a-box width="0.36" height="0.05" depth="0.26" position="0 0.18 0.02" color="#cccccc" material="roughness: 0.1; metalness: 0.9"></a-box>
+            <a-cylinder radius="0.02" height="0.1" position="-0.1 -0.05 0.17" color="#cccccc" material="roughness: 0.1; metalness: 0.9" rotation="0 0 0"></a-cylinder>
+
+            <!-- Clickable Brew button -->
+            <a-cylinder class="clickable" 
+                        coffee-brewer
+                        sound="id: brew-sound; src: #brew-sound-src; volume: 0.6; positional: true"
+                        radius="0.03" height="0.03" 
+                        position="0.1 0.21 0.08" 
+                        rotation="90 0 0" 
+                        color="#ff3300"
+                        material="emissive: #330000"
+                        animation__hover="property: scale; to: 1.2 1.2 1.2; dur: 100; startEvents: mouseenter"
+                        animation__leave="property: scale; to: 1 1 1; dur: 100; startEvents: mouseleave"
+                        animation__press="property: position; to: 0.1 0.20 0.08; dur: 80; dir: alternate; startEvents: click">
+            </a-cylinder>
+            <!-- Brew button label -->
+            <a-text value="BREW" position="0.1 0.25 0.12" align="center" width="0.8" color="#ffffff"></a-text>
+
+            <!-- Coffee Mug (Resting under the nozzle) -->
+            <a-entity id="interactive-mug" class="clickable" position="-0.1 -0.03 0.1" rotation="0 -45 0">
+                <!-- Mug cylinder shape -->
+                <a-cylinder radius="0.05" height="0.1" color="#f5f5f5" material="roughness: 0.1; metalness: 0.1">
+                    <!-- Mug handle -->
+                    <a-torus radius="0.03" radius-tubular="0.008" arc="180" rotation="0 0 90" position="0.05 0 0" color="#f5f5f5"></a-torus>
+                    <!-- Dark coffee fill inside the mug -->
+                    <a-cylinder id="coffee-liquid" radius="0.046" height="0.08" color="#5c4033" position="0 -0.06 0" visible="false" material="roughness: 0.2; metalness: 0"></a-cylinder>
+                </a-cylinder>
+            </a-entity>
+
+            <!-- Steam Particle System Placeholder (controlled by script) -->
+            <a-entity id="steam-particles" position="-0.1 0.05 0.1" visible="false">
+                <a-sphere radius="0.01" color="#ffffff" material="opacity: 0.35; transparent: true; shader: flat" position="0 0 0" visible="false"></a-sphere>
+                <a-sphere radius="0.01" color="#ffffff" material="opacity: 0.35; transparent: true; shader: flat" position="0 0.05 0" visible="false"></a-sphere>
+                <a-sphere radius="0.01" color="#ffffff" material="opacity: 0.35; transparent: true; shader: flat" position="0 0.1 0" visible="false"></a-sphere>
+                <a-sphere radius="0.01" color="#ffffff" material="opacity: 0.35; transparent: true; shader: flat" position="-0.02 0.02 0.02" visible="false"></a-sphere>
+                <a-sphere radius="0.01" color="#ffffff" material="opacity: 0.35; transparent: true; shader: flat" position="0.02 0.02 -0.02" visible="false"></a-sphere>
+            </a-entity>
+        </a-entity>
+
+        <!-- Cafe Menu Chalkboard (stands on the counter next to brewer) -->
+        <a-entity position="-2.3 0.95 5.5" rotation="0 15 0">
+            <!-- Blackboard easel slate -->
+            <a-box width="0.45" height="0.6" depth="0.02" color="#2b2b2b" material="roughness: 0.9; metalness: 0.1">
+                <!-- Wooden frame borders -->
+                <a-box width="0.48" height="0.03" depth="0.04" position="0 0.3 0" color="#8b5a2b"></a-box>
+                <a-box width="0.48" height="0.03" depth="0.04" position="0 -0.3 0" color="#8b5a2b"></a-box>
+                <a-box width="0.03" height="0.6" depth="0.04" position="-0.23 0 0" color="#8b5a2b"></a-box>
+                <a-box width="0.03" height="0.6" depth="0.04" position="0.23 0 0" color="#8b5a2b"></a-box>
+                
+                <!-- Written text list -->
+                <a-text value="COFFEE MENU\n\nEspresso.....$2.50\nAmericano....$3.00\nCappuccino...$3.75\nLatte........$4.00\nCold Brew....$3.50\n\n[Click Espresso Maker to brew!]" 
+                        position="0 0 0.015" 
+                        align="center" 
+                        width="0.8" 
+                        color="#ffffff" 
+                        font="kelsonsans">
+                </a-text>
+            </a-box>
+        </a-entity>
 
     </a-scene>
-</body>
 
+    <!-- ====== 2D WEB USER INTERFACE (GLASSMORPHIC OVERLAY) ====== -->
+    <div id="intro-overlay">
+        <div class="intro-card">
+            <h1>Cozy Coffee Shop</h1>
+            <div class="subtitle">A-Frame Interactive WebXR Experience</div>
+            <div class="divider"></div>
+            
+            <div class="controls-grid">
+                <!-- Desktop Column -->
+                <div class="control-column column-pc">
+                    <h3><i class="fa-solid fa-desktop"></i> Desktop Controls</h3>
+                    <div class="control-item">
+                        <span class="key-cap">W</span>
+                        <span class="key-cap">A</span>
+                        <span class="key-cap">S</span>
+                        <span class="key-cap">D</span>
+                        <span class="control-desc">Walk around</span>
+                    </div>
+                    <div class="control-item">
+                        <span class="key-cap"><i class="fa-solid fa-arrow-left-long"></i></span>
+                        <span class="control-desc">Arrow keys also walk</span>
+                    </div>
+                    <div class="control-item">
+                        <span class="mouse-icon"><i class="fa-solid fa-computer-mouse"></i></span>
+                        <span class="control-desc">Left-click & drag to look</span>
+                    </div>
+                    <div class="control-item">
+                        <span class="mouse-icon"><i class="fa-solid fa-hand-pointer"></i></span>
+                        <span class="control-desc">Click glowing waypoints/mug</span>
+                    </div>
+                </div>
+
+                <!-- VR Column -->
+                <div class="control-column column-vr">
+                    <h3><i class="fa-solid fa-vr-cardboard"></i> Quest 3S VR Controls</h3>
+                    <div class="control-item">
+                        <span class="stick-icon"><i class="fa-solid fa-circle-dot"></i></span>
+                        <span class="control-desc"><b>Left Stick:</b> Walk around</span>
+                    </div>
+                    <div class="control-item">
+                        <span class="stick-icon"><i class="fa-solid fa-circle-dot"></i></span>
+                        <span class="control-desc"><b>Right Stick X:</b> Snap rotation</span>
+                    </div>
+                    <div class="control-item">
+                        <span class="stick-icon"><i class="fa-solid fa-hand"></i></span>
+                        <span class="control-desc"><b>Laser Pointer:</b> Point at targets</span>
+                    </div>
+                    <div class="control-item">
+                        <span class="stick-icon"><i class="fa-solid fa-circle"></i></span>
+                        <span class="control-desc"><b>Trigger Button:</b> Interact/Click</span>
+                    </div>
+                </div>
+            </div>
+
+            <button class="btn-primary" onclick="startExperience()">
+                <i class="fa-solid fa-mug-hot"></i> Enter Experience
+            </button>
+        </div>
+    </div>
+
+    <!-- HUD Deck at bottom of screen -->
+    <div id="hud-dock">
+        <!-- Play / Pause Lofi Ambient Audio -->
+        <button id="toggle-audio-btn" class="hud-btn" data-tooltip="Play Ambient Music" onclick="toggleAudio()">
+            <i class="fa-solid fa-volume-xmark"></i>
+        </button>
+
+        <div class="hud-divider"></div>
+
+        <!-- Snap turn vs smooth turn toggle (VR focus) -->
+        <button id="toggle-turn-btn" class="hud-btn active" data-tooltip="VR Snap Turning (Active)" onclick="toggleTurnMode()">
+            <i class="fa-solid fa-rotate-left"></i>
+        </button>
+
+        <!-- Collision / Fly mode toggle -->
+        <button id="toggle-ghost-btn" class="hud-btn" data-tooltip="Toggle Walk vs Ghost Mode" onclick="toggleGhostMode()">
+            <i class="fa-solid fa-ghost"></i>
+        </button>
+
+        <!-- Speed multiplier -->
+        <button id="speed-btn" class="hud-btn" data-tooltip="Movement Speed" onclick="cycleSpeed()">
+            <span id="speed-display">1.0x</span>
+        </button>
+
+        <div class="hud-divider"></div>
+
+        <!-- Reset position back to center origin -->
+        <button class="hud-btn" data-tooltip="Reset Position" onclick="resetPosition()">
+            <i class="fa-solid fa-house"></i>
+        </button>
+    </div>
+
+    <!-- VR Active Display overlay indicator -->
+    <div id="vr-indicator">
+        <i class="fa-solid fa-circle-dot" style="animation: pulse 1.5s infinite"></i> Quest 3S VR Active
+    </div>
+
+    <!-- Notifications banner -->
+    <div id="notification">
+        <i class="fa-solid fa-circle-info" style="color: var(--accent-warm)"></i>
+        <span id="notification-text">Welcome to the Coffee Shop!</span>
+    </div>
+
+    <!-- Cursor crosshair for screen pointer lock -->
+    <div id="cursor-crosshair"></div>
+
+
+    <!-- CLIENT SIDE HUD INTERFACES CONTROL LOGIC -->
+    <script>
+        let audioPlaying = false;
+        let speedMultiplier = 0;
+        const speeds = [1.0, 1.5, 2.0];
+        
+        // Notify overlay function
+        function showNotification(text) {
+            const notif = document.getElementById('notification');
+            const textEl = document.getElementById('notification-text');
+            textEl.textContent = text;
+            notif.classList.add('show');
+            
+            // Auto hide after 3 seconds
+            setTimeout(() => {
+                notif.classList.remove('show');
+            }, 3000);
+        }
+
+        // Toggle Background Music
+        function toggleAudio() {
+            const musicEl = document.getElementById('ambient-music');
+            const btn = document.getElementById('toggle-audio-btn');
+            
+            if (!musicEl || !musicEl.components.sound) return;
+
+            if (audioPlaying) {
+                musicEl.components.sound.pauseSound();
+                btn.innerHTML = '<i class="fa-solid fa-volume-xmark"></i>';
+                btn.classList.remove('active');
+                btn.setAttribute('data-tooltip', 'Play Ambient Music');
+                audioPlaying = false;
+                showNotification('Ambient music muted.');
+            } else {
+                // Resume Context warning safe play
+                musicEl.components.sound.playSound();
+                btn.innerHTML = '<i class="fa-solid fa-volume-high"></i>';
+                btn.classList.add('active');
+                btn.setAttribute('data-tooltip', 'Mute Ambient Music');
+                audioPlaying = true;
+                showNotification('Playing cozy background lofi...');
+            }
+        }
+
+        // Toggle between snap turning and smooth turning
+        function toggleTurnMode() {
+            const rig = document.getElementById('rig');
+            const btn = document.getElementById('toggle-turn-btn');
+            
+            if (!rig) return;
+            const currentControls = rig.getAttribute('custom-controls');
+            
+            if (currentControls.snapTurn) {
+                // Switch to smooth
+                rig.setAttribute('custom-controls', 'snapTurn', false);
+                btn.classList.remove('active');
+                btn.setAttribute('data-tooltip', 'VR Smooth Turning (Active)');
+                btn.innerHTML = '<i class="fa-solid fa-circle-notch"></i>';
+                showNotification('VR mode: Smooth turning enabled.');
+            } else {
+                // Switch to snap
+                rig.setAttribute('custom-controls', 'snapTurn', true);
+                btn.classList.add('active');
+                btn.setAttribute('data-tooltip', 'VR Snap Turning (Active)');
+                btn.innerHTML = '<i class="fa-solid fa-rotate-left"></i>';
+                showNotification('VR mode: Snap turning enabled (45°).');
+            }
+        }
+
+        // Toggle Ghost mode (collision/flying)
+        function toggleGhostMode() {
+            const rig = document.getElementById('rig');
+            const btn = document.getElementById('toggle-ghost-btn');
+            
+            if (!rig) return;
+            const currentControls = rig.getAttribute('custom-controls');
+            const isGhost = !currentControls.ghostMode;
+            
+            rig.setAttribute('custom-controls', 'ghostMode', isGhost);
+            
+            if (isGhost) {
+                btn.classList.add('active');
+                btn.setAttribute('data-tooltip', 'Ghost Mode Active (Flying)');
+                showNotification('Ghost Mode active. You can fly and pass objects.');
+            } else {
+                btn.classList.remove('active');
+                btn.setAttribute('data-tooltip', 'Walk Mode Active (Ground Lock)');
+                
+                // Snap rig Y back to floor
+                const pos = rig.getAttribute('position');
+                rig.setAttribute('position', { x: pos.x, y: 0, z: pos.z });
+                showNotification('Walk Mode active. Standing on the floor.');
+            }
+        }
+
+        // Cycle through movement speed steps
+        function cycleSpeed() {
+            const rig = document.getElementById('rig');
+            const speedDisp = document.getElementById('speed-display');
+            
+            if (!rig) return;
+            
+            speedMultiplier = (speedMultiplier + 1) % speeds.length;
+            const selectedSpeed = speeds[speedMultiplier];
+            const baseSpeed = 2.5;
+            
+            rig.setAttribute('custom-controls', 'speed', baseSpeed * selectedSpeed);
+            speedDisp.textContent = selectedSpeed.toFixed(1) + 'x';
+            
+            showNotification('Walk speed set to ' + (baseSpeed * selectedSpeed).toFixed(1) + ' m/s (' + selectedSpeed.toFixed(1) + 'x)');
+        }
+
+        // Reset Rig position back to default
+        function resetPosition() {
+            const rig = document.getElementById('rig');
+            if (rig) {
+                rig.setAttribute('position', '0 0 0');
+                rig.setAttribute('rotation', '0 0 0');
+                showNotification('Reset to entrance starting position.');
+            }
+        }
+
+        // Enter experience click handler
+        function startExperience() {
+            // Fade out introductory UI
+            const intro = document.getElementById('intro-overlay');
+            intro.style.opacity = '0';
+            setTimeout(() => {
+                intro.style.display = 'none';
+            }, 800);
+
+            // Show Bottom Control dock HUD
+            document.getElementById('hud-dock').classList.add('show');
+            document.getElementById('cursor-crosshair').classList.add('show');
+
+            // Set up pointer lock request on scene canvas for cleaner look-controls on PC
+            const scene = document.querySelector('a-scene');
+            const camera = document.getElementById('camera');
+            
+            // Bind camera click to request Pointer Lock
+            scene.addEventListener('click', function() {
+                if (!scene.is('vr-mode')) {
+                    const canvas = scene.canvas;
+                    if (canvas && canvas.requestPointerLock) {
+                        canvas.requestPointerLock();
+                    }
+                }
+            });
+
+            // Set up listener for pointer lock state to adjust camera look-controls
+            document.addEventListener('pointerlockchange', function() {
+                if (document.pointerLockElement === scene.canvas) {
+                    camera.setAttribute('look-controls', 'pointerLockEnabled', true);
+                    document.getElementById('cursor-crosshair').style.opacity = '1';
+                } else {
+                    camera.setAttribute('look-controls', 'pointerLockEnabled', false);
+                    document.getElementById('cursor-crosshair').style.opacity = '0.3';
+                }
+            }, false);
+
+            // Start lofi music automatically if desired (or let user toggle)
+            // Autoplay is blocked in some browsers, so we call toggleAudio here inside user interaction callback
+            setTimeout(() => {
+                toggleAudio();
+            }, 500);
+        }
+
+        // Hook VR Entering & Exiting states to customize HUD styling
+        window.addEventListener('DOMContentLoaded', () => {
+            const scene = document.querySelector('a-scene');
+            const vrIndicator = document.getElementById('vr-indicator');
+            const hudDock = document.getElementById('hud-dock');
+
+            scene.addEventListener('enter-vr', () => {
+                // VR mode active
+                if (vrIndicator) vrIndicator.style.display = 'flex';
+                if (hudDock) hudDock.classList.remove('show'); // Hide screen UI overlay in VR
+                
+                // Notify controllers mapping
+                const rig = document.getElementById('rig');
+                rig.components['custom-controls'].setupVRControllerListeners();
+                showNotification('VR Headset Connected. Look around and use thumbsticks!');
+            });
+
+            scene.addEventListener('exit-vr', () => {
+                // VR mode closed
+                if (vrIndicator) vrIndicator.style.display = 'none';
+                if (hudDock) hudDock.classList.add('show'); // Show screen controls back
+                showNotification('Returned to desktop browser mode.');
+            });
+        });
+    </script>
+</body>
 </html>
