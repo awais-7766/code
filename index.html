@@ -317,27 +317,6 @@
             display: none;
         }
 
-        /* Crosshair for pointer lock look-controls */
-        #cursor-crosshair {
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: rgba(255, 255, 255, 0.5);
-            border: 1.5px solid rgba(0, 0, 0, 0.3);
-            pointer-events: none;
-            z-index: 99;
-            opacity: 0;
-            transition: opacity 0.3s;
-        }
-
-        #cursor-crosshair.show {
-            opacity: 1;
-        }
-
         /* VR Overlay message/notification */
         #notification {
             position: fixed;
@@ -365,7 +344,6 @@
             transform: translateX(-50%) translateY(0);
         }
 
-        /* Speed multiplier display in HUD */
         #speed-display {
             font-family: 'Outfit', sans-serif;
             font-size: 0.85rem;
@@ -373,9 +351,8 @@
         }
     </style>
 
-    <!-- locomotion controls logic script -->
+    <!-- Locomotion & Collision Control Logic Script -->
     <script>
-        // Custom Controls A-Frame Component
         AFRAME.registerComponent('custom-controls', {
             schema: {
                 speed: {type: 'number', default: 2.5},         // Movement speed (m/s)
@@ -383,7 +360,7 @@
                 snapTurn: {type: 'boolean', default: true},    // Use snap turn in VR
                 snapAngle: {type: 'number', default: 45},      // Snap turn rotation amount (deg)
                 snapInterval: {type: 'number', default: 300},  // Throttle delay between snaps (ms)
-                ghostMode: {type: 'boolean', default: false}   // True to bypass floor collisions (fly mode)
+                ghostMode: {type: 'boolean', default: false}   // True to bypass collisions
             },
 
             init: function () {
@@ -391,8 +368,9 @@
                 this.leftStick = {x: 0, y: 0};
                 this.rightStick = {x: 0, y: 0};
                 this.lastSnapTime = 0;
+                this.uiElevation = 0; // State controlled by UI Up/Down buttons
                 
-                // Keyboard Bindings
+                // Keyboard Bindings (Added Q/E for Up/Down)
                 window.addEventListener('keydown', (e) => {
                     this.keys[e.key.toLowerCase()] = true;
                 });
@@ -403,23 +381,25 @@
                 // Get camera and rig
                 this.camera = document.querySelector('[camera]');
                 this.rig = this.el;
+                
+                // Initialize raycaster for collision system
+                this.raycaster = new THREE.Raycaster();
+                this.raycaster.far = 0.5; // stop half a meter before walls
 
-                // Setup VR controller listeners once controllers connect
                 this.setupVRControllerListeners();
 
-                // Teleportation flash event trigger
+                // Teleportation event trigger
                 this.el.addEventListener('teleport-rig', (evt) => {
                     const newPos = evt.detail.position;
                     this.rig.setAttribute('position', {
                         x: newPos.x,
-                        y: this.data.ghostMode ? newPos.y : 0, // Align to floor unless in ghost mode
+                        y: this.data.ghostMode ? newPos.y : 0, 
                         z: newPos.z
                     });
                 });
             },
 
             setupVRControllerListeners: function () {
-                // Query left and right controller entities
                 const leftCtrl = document.getElementById('left-controller');
                 const rightCtrl = document.getElementById('right-controller');
 
@@ -428,7 +408,6 @@
                         this.leftStick.x = evt.detail.x;
                         this.leftStick.y = evt.detail.y;
                     });
-                    leftCtrl.addEventListener('thumbsticktouched', () => {});
                     leftCtrl.addEventListener('thumbstickreleased', () => {
                         this.leftStick.x = 0;
                         this.leftStick.y = 0;
@@ -447,77 +426,104 @@
                 }
             },
 
+            // Called by the UI Up/Down buttons
+            setUIElevation: function(val) {
+                this.uiElevation = val;
+            },
+
             tick: function (time, timeDelta) {
                 const dt = timeDelta / 1000;
-                if (dt <= 0 || dt > 0.1) return; // filter out stutter frames
+                if (dt <= 0 || dt > 0.1) return;
 
-                // 1. Gather Keyboard inputs
+                // 1. Gather Keyboard inputs (Horizontal + Vertical)
                 let kx = 0;
                 let kz = 0;
+                let ky = 0;
                 if (this.keys['w'] || this.keys['arrowup']) kz -= 1;
                 if (this.keys['s'] || this.keys['arrowdown']) kz += 1;
                 if (this.keys['a'] || this.keys['arrowleft']) kx -= 1;
                 if (this.keys['d'] || this.keys['arrowright']) kx += 1;
+                if (this.keys['e']) ky += 1; // E to go UP
+                if (this.keys['q']) ky -= 1; // Q to go DOWN
 
-                // Normalize keyboard direction
+                // Add VR controller inputs and UI inputs
                 let moveX = kx;
                 let moveZ = kz;
-                const len = Math.sqrt(moveX * moveX + moveZ * moveZ);
-                if (len > 0) {
-                    moveX /= len;
-                    moveZ /= len;
-                }
+                let moveY = ky + this.uiElevation;
 
-                // Add VR controller left thumbstick inputs
                 if (Math.abs(this.leftStick.x) > 0.1 || Math.abs(this.leftStick.y) > 0.1) {
                     moveX += this.leftStick.x;
                     moveZ += this.leftStick.y;
                 }
+                
+                // Right stick Y controls elevation (pushing stick up = negative Y, so we invert)
+                if (Math.abs(this.rightStick.y) > 0.1) {
+                    moveY += -this.rightStick.y; 
+                }
 
                 // 2. Perform Movement relative to camera heading
-                if (Math.abs(moveX) > 0.05 || Math.abs(moveZ) > 0.05) {
-                    // Extract camera world direction
+                if (Math.abs(moveX) > 0.05 || Math.abs(moveZ) > 0.05 || Math.abs(moveY) > 0.05) {
                     const camDir = new THREE.Vector3();
                     this.camera.object3D.getWorldDirection(camDir);
-                    
-                    if (!this.data.ghostMode) {
-                        camDir.y = 0; // Lock movement strictly to the floor plane (XZ)
-                    }
+                    camDir.y = 0; // Lock horizontal movement strictly to the floor plane (XZ)
                     camDir.normalize();
 
-                    // Perpendicular right vector
                     const camRight = new THREE.Vector3(-camDir.z, 0, camDir.x);
-                    if (this.data.ghostMode) {
-                        // In ghost/fly mode, get true 3D camera right vector
-                        this.camera.object3D.getWorldDirection(new THREE.Vector3()); // refresh
-                        const upVec = new THREE.Vector3(0, 1, 0);
-                        camRight.crossVectors(upVec, camDir).negate().normalize();
-                    }
 
-                    // Combined movement vector
                     const velocity = new THREE.Vector3();
                     velocity.addScaledVector(camDir, moveZ);
                     velocity.addScaledVector(camRight, moveX);
+                    
+                    // Cap horizontal velocity to prevent diagonal boost
+                    if (velocity.lengthSq() > 1.0) velocity.normalize();
+                    
+                    // Add purely vertical velocity directly to Y
+                    velocity.y = moveY;
 
-                    // Clamp to maximum magnitude of 1.0 to prevent diagonal speed boosts
-                    if (velocity.lengthSq() > 1.0) {
-                        velocity.normalize();
+                    // COLLISION SYSTEM
+                    // Cast a ray forward to prevent passing through solid objects in the coffee shop
+                    if (!this.data.ghostMode && (Math.abs(velocity.x) > 0 || Math.abs(velocity.z) > 0)) {
+                        const currentPos = this.rig.getAttribute('position');
+                        // Cast from roughly chest level
+                        const rayOrigin = new THREE.Vector3(currentPos.x, currentPos.y + 1.2, currentPos.z);
+                        const rayDir = new THREE.Vector3(velocity.x, 0, velocity.z).normalize();
+                        
+                        this.raycaster.set(rayOrigin, rayDir);
+                        
+                        // Check intersection with any object tagged with .collidable class
+                        const collidableEls = document.querySelectorAll('.collidable');
+                        for (let i = 0; i < collidableEls.length; i++) {
+                            const obj3D = collidableEls[i].object3D;
+                            if (obj3D) {
+                                const intersects = this.raycaster.intersectObject(obj3D, true);
+                                if (intersects.length > 0 && intersects[0].distance < 0.6) {
+                                    // Collision detected! Zero out horizontal velocity
+                                    velocity.x = 0;
+                                    velocity.z = 0;
+                                    break;
+                                }
+                            }
+                        }
+                        
+                        // Prevent going below ground (0) unless ghost mode is enabled
+                        if (currentPos.y + velocity.y * this.data.speed * dt < 0) {
+                            velocity.y = 0;
+                        }
                     }
 
-                    // Update rig position
-                    const currentPos = this.rig.getAttribute('position');
+                    // Update rig position if there's remaining velocity
+                    const finalPos = this.rig.getAttribute('position');
                     this.rig.setAttribute('position', {
-                        x: currentPos.x + velocity.x * this.data.speed * dt,
-                        y: currentPos.y + velocity.y * this.data.speed * dt,
-                        z: currentPos.z + velocity.z * this.data.speed * dt
+                        x: finalPos.x + velocity.x * this.data.speed * dt,
+                        y: finalPos.y + velocity.y * this.data.speed * dt,
+                        z: finalPos.z + velocity.z * this.data.speed * dt
                     });
                 }
 
-                // 3. VR Rotation (Right Controller Thumbstick)
+                // 3. VR Rotation (Right Controller Thumbstick X)
                 if (Math.abs(this.rightStick.x) > 0.25) {
                     const currentRot = this.rig.getAttribute('rotation');
                     if (this.data.snapTurn) {
-                        // Snap turn throttle check
                         if (time - this.lastSnapTime > this.data.snapInterval) {
                             const angle = this.rightStick.x > 0 ? -this.data.snapAngle : this.data.snapAngle;
                             this.rig.setAttribute('rotation', {
@@ -526,15 +532,6 @@
                                 z: currentRot.z
                             });
                             this.lastSnapTime = time;
-                            
-                            // Trigger controller haptic pulse if supported
-                            const rightControllerEntity = document.getElementById('right-controller');
-                            if (rightControllerEntity && rightControllerEntity.components['oculus-touch-controls']) {
-                                const gamepad = rightControllerEntity.components['oculus-touch-controls'].gamepad;
-                                if (gamepad && gamepad.hapticActuators && gamepad.hapticActuators[0]) {
-                                    gamepad.hapticActuators[0].pulse(0.1, 80);
-                                }
-                            }
                         }
                     } else {
                         // Smooth Turn
@@ -549,67 +546,36 @@
             }
         });
 
-        // Clickable Waypoint Component for comfortable Teleportation
+        // Clickable Waypoint Component for Teleportation
         AFRAME.registerComponent('waypoint', {
             init: function () {
-                // Set color animation properties
-                this.el.setAttribute('material', {
-                    color: '#00ffff',
-                    emissive: '#008888',
-                    opacity: 0.6,
-                    transparent: true,
-                    shader: 'flat'
-                });
-
-                // Hover states
+                this.el.setAttribute('material', { color: '#00ffff', emissive: '#008888', opacity: 0.6, transparent: true, shader: 'flat' });
                 this.el.addEventListener('mouseenter', () => {
                     this.el.setAttribute('material', 'color', '#ffaa00');
                     this.el.setAttribute('material', 'emissive', '#995500');
                     this.el.setAttribute('scale', '1.1 1.1 1.1');
-                    
                     const marker = this.el.querySelector('.waypoint-marker');
-                    if (marker) marker.setAttribute('animation__pulse', {
-                        property: 'position',
-                        to: '0 0.8 0',
-                        dir: 'alternate',
-                        dur: 400,
-                        loop: true
-                    });
+                    if (marker) marker.setAttribute('animation__pulse', { property: 'position', to: '0 0.8 0', dir: 'alternate', dur: 400, loop: true });
                 });
-
                 this.el.addEventListener('mouseleave', () => {
                     this.el.setAttribute('material', 'color', '#00ffff');
                     this.el.setAttribute('material', 'emissive', '#008888');
                     this.el.setAttribute('scale', '1 1 1');
-                    
                     const marker = this.el.querySelector('.waypoint-marker');
                     if (marker) {
                         marker.removeAttribute('animation__pulse');
                         marker.setAttribute('position', '0 0.4 0');
                     }
                 });
-
-                // On select / click
                 this.el.addEventListener('click', () => {
                     const targetPos = this.el.getAttribute('position');
-                    const rig = document.getElementById('rig');
-                    
-                    // Trigger custom teleport event on the rig
-                    rig.emit('teleport-rig', { position: targetPos });
-
-                    // Visual screen flash indicator
-                    const cameraFlash = document.getElementById('camera-flash');
-                    if (cameraFlash) {
-                        cameraFlash.emit('flash-teleport');
-                    }
-
-                    // Send notification
+                    document.getElementById('rig').emit('teleport-rig', { position: targetPos });
                     showNotification('Teleported to ' + this.el.getAttribute('data-name'));
                 });
             }
         });
 
-        // Interactive Brewing Coffee Machine Component
+        // Interactive Brewing Coffee Machine
         AFRAME.registerComponent('coffee-brewer', {
             init: function () {
                 this.brewing = false;
@@ -622,55 +588,27 @@
                     this.brewing = true;
                     showNotification('Brewing coffee... Espresso machine active!');
                     
-                    // Play brewing sound
                     const soundEl = document.getElementById('brew-sound');
-                    if (soundEl && soundEl.components.sound) {
-                        soundEl.components.sound.playSound();
-                    }
+                    if (soundEl && soundEl.components.sound) soundEl.components.sound.playSound();
 
-                    // Reset coffee cup liquid level
                     if (this.coffeeFill) {
                         this.coffeeFill.setAttribute('position', '0 -0.06 0');
                         this.coffeeFill.setAttribute('visible', 'true');
                     }
 
-                    // Emit steam particles (toggle visibility and start scaling spheres)
                     if (this.steamContainer) {
                         this.steamContainer.setAttribute('visible', 'true');
                         this.steamContainer.querySelectorAll('a-sphere').forEach((sp, idx) => {
                             sp.setAttribute('visible', 'true');
-                            sp.setAttribute('animation__rise', {
-                                property: 'position',
-                                to: (Math.random() * 0.1 - 0.05) + ' 0.8 ' + (Math.random() * 0.1 - 0.05),
-                                dur: 1200 + (idx * 200),
-                                loop: true,
-                                easing: 'easeOutQuad'
-                            });
-                            sp.setAttribute('animation__fade', {
-                                property: 'scale',
-                                from: '0.01 0.01 0.01',
-                                to: '0.06 0.06 0.06',
-                                dur: 1200 + (idx * 200),
-                                loop: true,
-                                easing: 'easeOutQuad'
-                            });
+                            sp.setAttribute('animation__rise', { property: 'position', to: (Math.random() * 0.1 - 0.05) + ' 0.8 ' + (Math.random() * 0.1 - 0.05), dur: 1200 + (idx * 200), loop: true, easing: 'easeOutQuad' });
+                            sp.setAttribute('animation__fade', { property: 'scale', from: '0.01 0.01 0.01', to: '0.06 0.06 0.06', dur: 1200 + (idx * 200), loop: true, easing: 'easeOutQuad' });
                         });
                     }
 
-                    // Complete coffee brewing animation sequence
                     setTimeout(() => {
-                        // Slowly fill mug with brown liquid
-                        if (this.coffeeFill) {
-                            this.coffeeFill.setAttribute('animation__fill', {
-                                property: 'position',
-                                to: '0 0.03 0',
-                                dur: 3500,
-                                easing: 'easeInOutQuad'
-                            });
-                        }
+                        if (this.coffeeFill) this.coffeeFill.setAttribute('animation__fill', { property: 'position', to: '0 0.03 0', dur: 3500, easing: 'easeInOutQuad' });
                     }, 1000);
 
-                    // Finalize brewing process
                     setTimeout(() => {
                         this.brewing = false;
                         showNotification('Coffee is ready! Take a sip ☕');
@@ -684,28 +622,16 @@
                             });
                         }
                         
-                        // Make mug glowing slightly to indicate it is ready
                         if (this.mug) {
-                            this.mug.setAttribute('animation__glow', {
-                                property: 'material.emissive',
-                                from: '#000000',
-                                to: '#5c4033',
-                                dur: 1000,
-                                dir: 'alternate',
-                                loop: true
-                            });
+                            this.mug.setAttribute('animation__glow', { property: 'material.emissive', from: '#000000', to: '#5c4033', dur: 1000, dir: 'alternate', loop: true });
                         }
                     }, 6500);
                 });
 
-                // Drinking coffee interaction
                 if (this.mug) {
                     this.mug.addEventListener('click', (e) => {
-                        // Prevent click propagation to brewer
                         e.stopPropagation();
-                        
                         if (this.brewing) return;
-                        
                         if (this.coffeeFill && this.coffeeFill.getAttribute('position').y > 0) {
                             showNotification('Mmm, delicious coffee! ☕');
                             this.coffeeFill.setAttribute('visible', 'false');
@@ -724,9 +650,8 @@
 </head>
 <body>
 
-    <!-- A-Frame VR Scene -->
     <a-scene 
-        renderer="antialias: true; colorManagement: true; logarithmicDepthBuffer: false;"
+        renderer="antialias: true; colorManagement: true;"
         light="defaultLightsEnabled: false"
         loading-screen="dotsColor: #d4a373; backgroundColor: #0a080f"
         cursor="rayOrigin: mouse; fuse: false"
@@ -735,93 +660,51 @@
 
         <!-- Preloaded assets -->
         <a-assets timeout="45000">
-            <!-- Coffee Shop 3D model files -->
             <a-asset-item id="coffeshop-obj" src="coffeshop.obj"></a-asset-item>
             <a-asset-item id="coffeshop-mtl" src="coffeshop.mtl"></a-asset-item>
-
-            <!-- Sound assets -->
-            <!-- Lofi coffee shop ambient background music -->
             <audio id="ambient-audio" src="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3" loop="true" crossorigin="anonymous"></audio>
-            <!-- Brew coffee machine sound effect -->
             <audio id="brew-sound-src" src="https://assets.mixkit.co/active_storage/sfx/2568/2568-84.wav" crossorigin="anonymous"></audio>
         </a-assets>
 
-        <!-- SOUND ENTITIES -->
         <a-entity id="ambient-music" sound="src: #ambient-audio; volume: 0.35; loop: true; positional: false"></a-entity>
 
         <!-- CAMERA & PLAYER CONTROLLERS RIG -->
-        <!-- Center point of the raw obj is offset. We position the model at an offset so the center falls at (0, 0) and floor falls at Y=0. -->
+        <!-- Custom Controls manages both keyboard (WASD & Q/E) and VR thumbsticks (Left = Move, Right = Turn/Altitude) -->
         <a-entity id="rig" position="0 0 0" rotation="0 0 0" custom-controls="speed: 2.5; turnSpeed: 55; snapTurn: true">
-            <!-- Camera (User Head) -->
-            <a-entity id="camera" camera position="0 1.65 0" look-controls="pointerLockEnabled: false">
-                <!-- Visual Screen Teleport Flash (Fade overlay) -->
-                <a-plane id="camera-flash" 
-                         position="0 0 -0.1" 
-                         width="0.2" 
-                         height="0.2" 
-                         material="color: #ffffff; opacity: 0; transparent: true; shader: flat" 
-                         visible="false"
-                         animation__teleport="property: material.opacity; from: 0.8; to: 0; dur: 350; startEvents: flash-teleport">
-                </a-plane>
+            
+            <!-- Standard look-controls for intuitive mouse click & drag on desktop -->
+            <a-entity id="camera" camera position="0 1.65 0" look-controls>
             </a-entity>
 
-            <!-- LEFT VR CONTROLLER (Quest 3S Left) -->
-            <!-- Handles Left Joystick Movement, provides a visible pointer line and custom tooltip indicators -->
+            <!-- LEFT VR CONTROLLER -->
             <a-entity id="left-controller" 
                       oculus-touch-controls="hand: left" 
                       laser-controls="hand: left"
                       raycaster="objects: .clickable; showLine: true; far: 20; lineColor: #00ffff"
                       line="color: #00ffff; opacity: 0.4">
-                <!-- VR Label HUD tooltip helper -->
-                <a-text value="Move Thumbstick: Walk\nTrigger: Select" 
-                        position="0 0.08 0.15" 
-                        rotation="-45 0 0" 
-                        color="#ffffff" 
-                        align="center" 
-                        width="0.35" 
-                        wrap-count="20"
-                        bg-color="#000000"
-                        visible="false">
-                </a-text>
             </a-entity>
 
-            <!-- RIGHT VR CONTROLLER (Quest 3S Right) -->
-            <!-- Handles Right Joystick Turning, provides a laser beam for interactive click items -->
+            <!-- RIGHT VR CONTROLLER -->
             <a-entity id="right-controller" 
                       oculus-touch-controls="hand: right" 
                       laser-controls="hand: right"
                       raycaster="objects: .clickable; showLine: true; far: 20; lineColor: #00ffff"
                       line="color: #00ffff; opacity: 0.4">
-                <!-- VR Label HUD tooltip helper -->
-                <a-text value="Thumbstick X: Turn\nTrigger: Select" 
-                        position="0 0.08 0.15" 
-                        rotation="-45 0 0" 
-                        color="#ffffff" 
-                        align="center" 
-                        width="0.35" 
-                        wrap-count="20"
-                        visible="false">
-                </a-text>
             </a-entity>
         </a-entity>
 
 
-        <!-- ====== 3D WORLD LIGHTING DESIGN ====== -->
-        <!-- Global soft sky ambient light (warm interior tone) -->
+        <!-- ====== 3D WORLD LIGHTING ====== -->
         <a-entity light="type: ambient; color: #ece2d0; intensity: 0.45"></a-entity>
-        
-        <!-- Sun (Directional sunlight passing through glass windows, casting shadows) -->
-        <a-entity light="type: directional; color: #fff1e0; intensity: 0.75; castShadow: true; shadowCameraLeft: -25; shadowCameraRight: 25; shadowCameraTop: 25; shadowCameraBottom: -25" position="15 20 -10"></a-entity>
-
-        <!-- Cozy interior warm spot lights to highlight counter and lounge tables -->
+        <a-entity light="type: directional; color: #fff1e0; intensity: 0.75; castShadow: true" position="15 20 -10"></a-entity>
         <a-entity light="type: spot; color: #ff9d42; intensity: 1.5; distance: 8; angle: 45; penumbra: 0.5" position="0.3 3.5 4.5" rotation="-90 0 0"></a-entity>
         <a-entity light="type: spot; color: #ff9d42; intensity: 1.5; distance: 8; angle: 45; penumbra: 0.5" position="-2.5 3.5 -0.5" rotation="-90 0 0"></a-entity>
-        <a-entity light="type: spot; color: #ffd1a4; intensity: 1.2; distance: 10; angle: 50; penumbra: 0.3" position="4.2 3.8 -4.8" rotation="-90 0 0"></a-entity>
 
 
-        <!-- ====== 3D COFFEE SHOP MODEL ====== -->
-        <!-- Shift offsets: X=35.5, Y=-108.5, Z=25.5 to align origin to center building, floor to Y=0 -->
+        <!-- ====== 3D COFFEE SHOP MODEL (COLLIDABLE) ====== -->
+        <!-- Model offset to start gracefully at Origin; Added .collidable class to support our Raycaster Collision System -->
         <a-entity id="coffeeshop-model"
+                  class="collidable"
                   obj-model="obj: #coffeshop-obj; mtl: #coffeshop-mtl" 
                   position="35.5 -108.5 25.5" 
                   scale="1 1 1"
@@ -829,14 +712,16 @@
         </a-entity>
 
 
-        <!-- ====== ENHANCED ENVIRONMENT DETAILS ====== -->
-        <!-- Solid ground helper in case the model's terrain boundary ends -->
+        <!-- ====== EXPERIENCE RELEVANCE & SCENERY ====== -->
+        <!-- Welcome 3D Sign -->
+        <a-text value="Welcome to the\nCozy Cafe" position="0.5 2.5 -2.5" align="center" width="6" color="#ffb703" font="mozillavr" material="emissive: #ffb703"
+                animation="property: position; to: 0.5 2.6 -2.5; dir: alternate; dur: 2000; loop: true"></a-text>
+
+        <!-- Floor helper -->
         <a-plane position="0 -0.05 0" rotation="-90 0 0" width="300" height="300" color="#18161f" material="roughness: 0.9; metalness: 0.1" shadow="receive: true"></a-plane>
 
-        <!-- Beautiful skybox gradient -->
         <a-sky material="shader: gradientshader; topColor: #08060c; bottomColor: #1a1523" geometry="radius: 500"></a-sky>
 
-        <!-- A-Frame Custom Sky Gradient Shader -->
         <script>
             AFRAME.registerShader('gradientshader', {
                 schema: {
@@ -863,403 +748,267 @@
             });
         </script>
 
-
-        <!-- ====== INTERACTIVE TELEPORT WAYPOINTS ====== -->
-        <!-- Lounge Area Waypoint (Center of Cafe) -->
-        <a-entity class="clickable" waypoint position="0.5 0.01 -0.5" data-name="Lounge Lounge" data-tooltip="Teleport to Lounge">
+        <!-- Waypoints -->
+        <a-entity class="clickable" waypoint position="0.5 0.01 -0.5" data-name="Lounge Area" data-tooltip="Teleport to Lounge">
             <a-cylinder radius="0.45" height="0.04" material="shader: flat; transparent: true"></a-cylinder>
-            <a-torus class="waypoint-marker" radius="0.38" radius-tubular="0.025" rotation="90 0 0" position="0 0.4 0" material="color: #00ffff; emissive: #00ffff; shader: flat"
-                      animation="property: rotation; to: 90 360 0; loop: true; dur: 8000; easing: linear">
-            </a-torus>
-            <!-- Label above waypoint -->
+            <a-torus class="waypoint-marker" radius="0.38" radius-tubular="0.025" rotation="90 0 0" position="0 0.4 0" material="color: #00ffff; emissive: #00ffff; shader: flat"></a-torus>
             <a-text value="Lounge" position="0 1.1 0" align="center" width="2.5" color="#00ffff" font="monoid" side="double"></a-text>
         </a-entity>
 
-        <!-- Espresso Bar & Counter Waypoint -->
         <a-entity class="clickable" waypoint position="-1.5 0.01 4.2" data-name="Bar Counter" data-tooltip="Teleport to Counter">
             <a-cylinder radius="0.45" height="0.04" material="shader: flat; transparent: true"></a-cylinder>
-            <a-torus class="waypoint-marker" radius="0.38" radius-tubular="0.025" rotation="90 0 0" position="0 0.4 0" material="color: #00ffff; emissive: #00ffff; shader: flat"
-                      animation="property: rotation; to: 90 360 0; loop: true; dur: 8000; easing: linear">
-            </a-torus>
-            <a-text value="Order Counter" position="0 1.1 0" align="center" width="2.5" color="#00ffff" font="monoid" side="double"></a-text>
+            <a-torus class="waypoint-marker" radius="0.38" radius-tubular="0.025" rotation="90 0 0" position="0 0.4 0" material="color: #00ffff; emissive: #00ffff; shader: flat"></a-torus>
+            <a-text value="Counter" position="0 1.1 0" align="center" width="2.5" color="#00ffff" font="monoid" side="double"></a-text>
         </a-entity>
 
-        <!-- Patio / Outdoor Entrance Waypoint -->
         <a-entity class="clickable" waypoint position="5.2 0.01 -5.2" data-name="Sunlit Patio" data-tooltip="Teleport to Patio">
             <a-cylinder radius="0.45" height="0.04" material="shader: flat; transparent: true"></a-cylinder>
-            <a-torus class="waypoint-marker" radius="0.38" radius-tubular="0.025" rotation="90 0 0" position="0 0.4 0" material="color: #00ffff; emissive: #00ffff; shader: flat"
-                      animation="property: rotation; to: 90 360 0; loop: true; dur: 8000; easing: linear">
-            </a-torus>
+            <a-torus class="waypoint-marker" radius="0.38" radius-tubular="0.025" rotation="90 0 0" position="0 0.4 0" material="color: #00ffff; emissive: #00ffff; shader: flat"></a-torus>
             <a-text value="Patio" position="0 1.1 0" align="center" width="2.5" color="#00ffff" font="monoid" side="double"></a-text>
         </a-entity>
 
-
-        <!-- ====== INTERACTIVE ESPRESSO BREWING MACHINE ====== -->
-        <!-- A button/brewing machine placed directly on the counter bar (near X=-1.5, Z=4.2) -->
-        <!-- Adjusted coordinates to rest on top of the counter -->
+        <!-- Espresso Station -->
         <a-entity id="espresso-station" position="-1.5 0.95 5.5">
-            <!-- Machine base body -->
             <a-box width="0.4" height="0.4" depth="0.3" color="#33333b" material="roughness: 0.2; metalness: 0.8"></a-box>
-            <!-- Chrome highlights -->
             <a-box width="0.36" height="0.05" depth="0.26" position="0 0.18 0.02" color="#cccccc" material="roughness: 0.1; metalness: 0.9"></a-box>
-            <a-cylinder radius="0.02" height="0.1" position="-0.1 -0.05 0.17" color="#cccccc" material="roughness: 0.1; metalness: 0.9" rotation="0 0 0"></a-cylinder>
+            <a-cylinder radius="0.02" height="0.1" position="-0.1 -0.05 0.17" color="#cccccc" material="roughness: 0.1; metalness: 0.9"></a-cylinder>
 
-            <!-- Clickable Brew button -->
-            <a-cylinder class="clickable" 
-                        coffee-brewer
-                        sound="id: brew-sound; src: #brew-sound-src; volume: 0.6; positional: true"
-                        radius="0.03" height="0.03" 
-                        position="0.1 0.21 0.08" 
-                        rotation="90 0 0" 
-                        color="#ff3300"
-                        material="emissive: #330000"
+            <a-cylinder class="clickable" coffee-brewer sound="id: brew-sound; src: #brew-sound-src; volume: 0.6; positional: true"
+                        radius="0.03" height="0.03" position="0.1 0.21 0.08" rotation="90 0 0" color="#ff3300" material="emissive: #330000"
                         animation__hover="property: scale; to: 1.2 1.2 1.2; dur: 100; startEvents: mouseenter"
                         animation__leave="property: scale; to: 1 1 1; dur: 100; startEvents: mouseleave"
                         animation__press="property: position; to: 0.1 0.20 0.08; dur: 80; dir: alternate; startEvents: click">
             </a-cylinder>
-            <!-- Brew button label -->
             <a-text value="BREW" position="0.1 0.25 0.12" align="center" width="0.8" color="#ffffff"></a-text>
 
-            <!-- Coffee Mug (Resting under the nozzle) -->
             <a-entity id="interactive-mug" class="clickable" position="-0.1 -0.03 0.1" rotation="0 -45 0">
-                <!-- Mug cylinder shape -->
                 <a-cylinder radius="0.05" height="0.1" color="#f5f5f5" material="roughness: 0.1; metalness: 0.1">
-                    <!-- Mug handle -->
                     <a-torus radius="0.03" radius-tubular="0.008" arc="180" rotation="0 0 90" position="0.05 0 0" color="#f5f5f5"></a-torus>
-                    <!-- Dark coffee fill inside the mug -->
-                    <a-cylinder id="coffee-liquid" radius="0.046" height="0.08" color="#5c4033" position="0 -0.06 0" visible="false" material="roughness: 0.2; metalness: 0"></a-cylinder>
+                    <a-cylinder id="coffee-liquid" radius="0.046" height="0.08" color="#5c4033" position="0 -0.06 0" visible="false"></a-cylinder>
                 </a-cylinder>
             </a-entity>
 
-            <!-- Steam Particle System Placeholder (controlled by script) -->
             <a-entity id="steam-particles" position="-0.1 0.05 0.1" visible="false">
-                <a-sphere radius="0.01" color="#ffffff" material="opacity: 0.35; transparent: true; shader: flat" position="0 0 0" visible="false"></a-sphere>
-                <a-sphere radius="0.01" color="#ffffff" material="opacity: 0.35; transparent: true; shader: flat" position="0 0.05 0" visible="false"></a-sphere>
-                <a-sphere radius="0.01" color="#ffffff" material="opacity: 0.35; transparent: true; shader: flat" position="0 0.1 0" visible="false"></a-sphere>
-                <a-sphere radius="0.01" color="#ffffff" material="opacity: 0.35; transparent: true; shader: flat" position="-0.02 0.02 0.02" visible="false"></a-sphere>
-                <a-sphere radius="0.01" color="#ffffff" material="opacity: 0.35; transparent: true; shader: flat" position="0.02 0.02 -0.02" visible="false"></a-sphere>
+                <a-sphere radius="0.01" color="#ffffff" material="opacity: 0.35; transparent: true; shader: flat"></a-sphere>
+                <a-sphere radius="0.01" color="#ffffff" material="opacity: 0.35; transparent: true; shader: flat"></a-sphere>
+                <a-sphere radius="0.01" color="#ffffff" material="opacity: 0.35; transparent: true; shader: flat"></a-sphere>
             </a-entity>
         </a-entity>
 
-        <!-- Cafe Menu Chalkboard (stands on the counter next to brewer) -->
         <a-entity position="-2.3 0.95 5.5" rotation="0 15 0">
-            <!-- Blackboard easel slate -->
             <a-box width="0.45" height="0.6" depth="0.02" color="#2b2b2b" material="roughness: 0.9; metalness: 0.1">
-                <!-- Wooden frame borders -->
                 <a-box width="0.48" height="0.03" depth="0.04" position="0 0.3 0" color="#8b5a2b"></a-box>
                 <a-box width="0.48" height="0.03" depth="0.04" position="0 -0.3 0" color="#8b5a2b"></a-box>
                 <a-box width="0.03" height="0.6" depth="0.04" position="-0.23 0 0" color="#8b5a2b"></a-box>
                 <a-box width="0.03" height="0.6" depth="0.04" position="0.23 0 0" color="#8b5a2b"></a-box>
-                
-                <!-- Written text list -->
-                <a-text value="COFFEE MENU\n\nEspresso.....$2.50\nAmericano....$3.00\nCappuccino...$3.75\nLatte........$4.00\nCold Brew....$3.50\n\n[Click Espresso Maker to brew!]" 
-                        position="0 0 0.015" 
-                        align="center" 
-                        width="0.8" 
-                        color="#ffffff" 
-                        font="kelsonsans">
+                <a-text value="COFFEE MENU\n\nEspresso.....$2.50\nAmericano....$3.00\nCappuccino...$3.75\nLatte........$4.00\nCold Brew....$3.50\n\n[Click Espresso Maker!]" 
+                        position="0 0 0.015" align="center" width="0.8" color="#ffffff" font="kelsonsans">
                 </a-text>
             </a-box>
         </a-entity>
-
     </a-scene>
 
-    <!-- ====== 2D WEB USER INTERFACE (GLASSMORPHIC OVERLAY) ====== -->
+    <!-- ====== 2D WEB USER INTERFACE ====== -->
     <div id="intro-overlay">
         <div class="intro-card">
             <h1>Cozy Coffee Shop</h1>
-            <div class="subtitle">A-Frame Interactive WebXR Experience</div>
+            <div class="subtitle">Immersive Interactive WebXR Experience</div>
             <div class="divider"></div>
             
             <div class="controls-grid">
-                <!-- Desktop Column -->
                 <div class="control-column column-pc">
                     <h3><i class="fa-solid fa-desktop"></i> Desktop Controls</h3>
                     <div class="control-item">
-                        <span class="key-cap">W</span>
-                        <span class="key-cap">A</span>
-                        <span class="key-cap">S</span>
-                        <span class="key-cap">D</span>
+                        <span class="key-cap">W</span><span class="key-cap">A</span><span class="key-cap">S</span><span class="key-cap">D</span>
                         <span class="control-desc">Walk around</span>
                     </div>
                     <div class="control-item">
-                        <span class="key-cap"><i class="fa-solid fa-arrow-left-long"></i></span>
-                        <span class="control-desc">Arrow keys also walk</span>
+                        <span class="key-cap">Q</span><span class="key-cap">E</span>
+                        <span class="control-desc">Elevation (Up / Down)</span>
                     </div>
                     <div class="control-item">
                         <span class="mouse-icon"><i class="fa-solid fa-computer-mouse"></i></span>
-                        <span class="control-desc">Left-click & drag to look</span>
-                    </div>
-                    <div class="control-item">
-                        <span class="mouse-icon"><i class="fa-solid fa-hand-pointer"></i></span>
-                        <span class="control-desc">Click glowing waypoints/mug</span>
+                        <span class="control-desc">Drag to look (Standard Mouse)</span>
                     </div>
                 </div>
 
-                <!-- VR Column -->
                 <div class="control-column column-vr">
-                    <h3><i class="fa-solid fa-vr-cardboard"></i> Quest 3S VR Controls</h3>
+                    <h3><i class="fa-solid fa-vr-cardboard"></i> Quest VR Controls</h3>
                     <div class="control-item">
                         <span class="stick-icon"><i class="fa-solid fa-circle-dot"></i></span>
-                        <span class="control-desc"><b>Left Stick:</b> Walk around</span>
+                        <span class="control-desc"><b>Left Stick:</b> Walk</span>
                     </div>
                     <div class="control-item">
                         <span class="stick-icon"><i class="fa-solid fa-circle-dot"></i></span>
-                        <span class="control-desc"><b>Right Stick X:</b> Snap rotation</span>
-                    </div>
-                    <div class="control-item">
-                        <span class="stick-icon"><i class="fa-solid fa-hand"></i></span>
-                        <span class="control-desc"><b>Laser Pointer:</b> Point at targets</span>
+                        <span class="control-desc"><b>Right Stick X/Y:</b> Turn & Altitude</span>
                     </div>
                     <div class="control-item">
                         <span class="stick-icon"><i class="fa-solid fa-circle"></i></span>
-                        <span class="control-desc"><b>Trigger Button:</b> Interact/Click</span>
+                        <span class="control-desc"><b>Trigger Button:</b> Interact</span>
                     </div>
                 </div>
             </div>
-
             <button class="btn-primary" onclick="startExperience()">
                 <i class="fa-solid fa-mug-hot"></i> Enter Experience
             </button>
         </div>
     </div>
 
-    <!-- HUD Deck at bottom of screen -->
+    <!-- HUD Deck -->
     <div id="hud-dock">
-        <!-- Play / Pause Lofi Ambient Audio -->
+        <!-- Up and Down Elevation Buttons -->
+        <button class="hud-btn" data-tooltip="Go Down (Q)" onmousedown="elevateRig(-1)" onmouseup="stopElevate()" onmouseleave="stopElevate()">
+            <i class="fa-solid fa-arrow-down"></i>
+        </button>
+        <button class="hud-btn" data-tooltip="Go Up (E)" onmousedown="elevateRig(1)" onmouseup="stopElevate()" onmouseleave="stopElevate()">
+            <i class="fa-solid fa-arrow-up"></i>
+        </button>
+
+        <div class="hud-divider"></div>
+
         <button id="toggle-audio-btn" class="hud-btn" data-tooltip="Play Ambient Music" onclick="toggleAudio()">
             <i class="fa-solid fa-volume-xmark"></i>
         </button>
 
         <div class="hud-divider"></div>
-
-        <!-- Snap turn vs smooth turn toggle (VR focus) -->
-        <button id="toggle-turn-btn" class="hud-btn active" data-tooltip="VR Snap Turning (Active)" onclick="toggleTurnMode()">
+        <button id="toggle-turn-btn" class="hud-btn active" data-tooltip="VR Snap Turning" onclick="toggleTurnMode()">
             <i class="fa-solid fa-rotate-left"></i>
         </button>
-
-        <!-- Collision / Fly mode toggle -->
-        <button id="toggle-ghost-btn" class="hud-btn" data-tooltip="Toggle Walk vs Ghost Mode" onclick="toggleGhostMode()">
-            <i class="fa-solid fa-ghost"></i>
+        <button id="toggle-ghost-btn" class="hud-btn" data-tooltip="Toggle Collision Mode" onclick="toggleGhostMode()">
+            <i class="fa-solid fa-person-walking"></i>
         </button>
-
-        <!-- Speed multiplier -->
         <button id="speed-btn" class="hud-btn" data-tooltip="Movement Speed" onclick="cycleSpeed()">
             <span id="speed-display">1.0x</span>
         </button>
-
         <div class="hud-divider"></div>
-
-        <!-- Reset position back to center origin -->
         <button class="hud-btn" data-tooltip="Reset Position" onclick="resetPosition()">
             <i class="fa-solid fa-house"></i>
         </button>
     </div>
 
-    <!-- VR Active Display overlay indicator -->
     <div id="vr-indicator">
-        <i class="fa-solid fa-circle-dot" style="animation: pulse 1.5s infinite"></i> Quest 3S VR Active
+        <i class="fa-solid fa-circle-dot" style="animation: pulse 1.5s infinite"></i> Quest VR Active
     </div>
 
-    <!-- Notifications banner -->
     <div id="notification">
         <i class="fa-solid fa-circle-info" style="color: var(--accent-warm)"></i>
         <span id="notification-text">Welcome to the Coffee Shop!</span>
     </div>
 
-    <!-- Cursor crosshair for screen pointer lock -->
-    <div id="cursor-crosshair"></div>
-
-
-    <!-- CLIENT SIDE HUD INTERFACES CONTROL LOGIC -->
     <script>
         let audioPlaying = false;
         let speedMultiplier = 0;
         const speeds = [1.0, 1.5, 2.0];
         
-        // Notify overlay function
         function showNotification(text) {
             const notif = document.getElementById('notification');
-            const textEl = document.getElementById('notification-text');
-            textEl.textContent = text;
+            document.getElementById('notification-text').textContent = text;
             notif.classList.add('show');
-            
-            // Auto hide after 3 seconds
-            setTimeout(() => {
-                notif.classList.remove('show');
-            }, 3000);
+            setTimeout(() => notif.classList.remove('show'), 3000);
         }
 
-        // Toggle Background Music
         function toggleAudio() {
             const musicEl = document.getElementById('ambient-music');
             const btn = document.getElementById('toggle-audio-btn');
-            
             if (!musicEl || !musicEl.components.sound) return;
-
             if (audioPlaying) {
                 musicEl.components.sound.pauseSound();
                 btn.innerHTML = '<i class="fa-solid fa-volume-xmark"></i>';
                 btn.classList.remove('active');
-                btn.setAttribute('data-tooltip', 'Play Ambient Music');
                 audioPlaying = false;
                 showNotification('Ambient music muted.');
             } else {
-                // Resume Context warning safe play
                 musicEl.components.sound.playSound();
                 btn.innerHTML = '<i class="fa-solid fa-volume-high"></i>';
                 btn.classList.add('active');
-                btn.setAttribute('data-tooltip', 'Mute Ambient Music');
                 audioPlaying = true;
                 showNotification('Playing cozy background lofi...');
             }
         }
 
-        // Toggle between snap turning and smooth turning
         function toggleTurnMode() {
             const rig = document.getElementById('rig');
             const btn = document.getElementById('toggle-turn-btn');
-            
             if (!rig) return;
             const currentControls = rig.getAttribute('custom-controls');
-            
             if (currentControls.snapTurn) {
-                // Switch to smooth
                 rig.setAttribute('custom-controls', 'snapTurn', false);
                 btn.classList.remove('active');
-                btn.setAttribute('data-tooltip', 'VR Smooth Turning (Active)');
                 btn.innerHTML = '<i class="fa-solid fa-circle-notch"></i>';
                 showNotification('VR mode: Smooth turning enabled.');
             } else {
-                // Switch to snap
                 rig.setAttribute('custom-controls', 'snapTurn', true);
                 btn.classList.add('active');
-                btn.setAttribute('data-tooltip', 'VR Snap Turning (Active)');
                 btn.innerHTML = '<i class="fa-solid fa-rotate-left"></i>';
-                showNotification('VR mode: Snap turning enabled (45°).');
+                showNotification('VR mode: Snap turning enabled.');
             }
         }
 
-        // Toggle Ghost mode (collision/flying)
         function toggleGhostMode() {
             const rig = document.getElementById('rig');
             const btn = document.getElementById('toggle-ghost-btn');
-            
             if (!rig) return;
-            const currentControls = rig.getAttribute('custom-controls');
-            const isGhost = !currentControls.ghostMode;
-            
+            const isGhost = !rig.getAttribute('custom-controls').ghostMode;
             rig.setAttribute('custom-controls', 'ghostMode', isGhost);
             
             if (isGhost) {
                 btn.classList.add('active');
-                btn.setAttribute('data-tooltip', 'Ghost Mode Active (Flying)');
-                showNotification('Ghost Mode active. You can fly and pass objects.');
+                btn.innerHTML = '<i class="fa-solid fa-ghost"></i>';
+                showNotification('Ghost Mode active. Fly and bypass collisions.');
             } else {
                 btn.classList.remove('active');
-                btn.setAttribute('data-tooltip', 'Walk Mode Active (Ground Lock)');
-                
-                // Snap rig Y back to floor
+                btn.innerHTML = '<i class="fa-solid fa-person-walking"></i>';
                 const pos = rig.getAttribute('position');
                 rig.setAttribute('position', { x: pos.x, y: 0, z: pos.z });
-                showNotification('Walk Mode active. Standing on the floor.');
+                showNotification('Collision Mode active. Restricted to layout limits.');
             }
         }
 
-        // Cycle through movement speed steps
         function cycleSpeed() {
             const rig = document.getElementById('rig');
-            const speedDisp = document.getElementById('speed-display');
-            
-            if (!rig) return;
-            
             speedMultiplier = (speedMultiplier + 1) % speeds.length;
-            const selectedSpeed = speeds[speedMultiplier];
-            const baseSpeed = 2.5;
-            
-            rig.setAttribute('custom-controls', 'speed', baseSpeed * selectedSpeed);
-            speedDisp.textContent = selectedSpeed.toFixed(1) + 'x';
-            
-            showNotification('Walk speed set to ' + (baseSpeed * selectedSpeed).toFixed(1) + ' m/s (' + selectedSpeed.toFixed(1) + 'x)');
+            rig.setAttribute('custom-controls', 'speed', 2.5 * speeds[speedMultiplier]);
+            document.getElementById('speed-display').textContent = speeds[speedMultiplier].toFixed(1) + 'x';
+            showNotification('Speed set to ' + speeds[speedMultiplier].toFixed(1) + 'x');
         }
 
-        // Reset Rig position back to default
         function resetPosition() {
+            document.getElementById('rig').setAttribute('position', '0 0 0');
+            document.getElementById('rig').setAttribute('rotation', '0 0 0');
+            showNotification('Reset to entrance starting position.');
+        }
+
+        // Elevation controls linked to HUD buttons
+        function elevateRig(direction) {
             const rig = document.getElementById('rig');
-            if (rig) {
-                rig.setAttribute('position', '0 0 0');
-                rig.setAttribute('rotation', '0 0 0');
-                showNotification('Reset to entrance starting position.');
+            if (rig && rig.components['custom-controls']) {
+                rig.components['custom-controls'].setUIElevation(direction);
+            }
+        }
+        function stopElevate() {
+            const rig = document.getElementById('rig');
+            if (rig && rig.components['custom-controls']) {
+                rig.components['custom-controls'].setUIElevation(0);
             }
         }
 
-        // Enter experience click handler
         function startExperience() {
-            // Fade out introductory UI
-            const intro = document.getElementById('intro-overlay');
-            intro.style.opacity = '0';
-            setTimeout(() => {
-                intro.style.display = 'none';
-            }, 800);
-
-            // Show Bottom Control dock HUD
+            document.getElementById('intro-overlay').style.opacity = '0';
+            setTimeout(() => document.getElementById('intro-overlay').style.display = 'none', 800);
             document.getElementById('hud-dock').classList.add('show');
-            document.getElementById('cursor-crosshair').classList.add('show');
-
-            // Set up pointer lock request on scene canvas for cleaner look-controls on PC
-            const scene = document.querySelector('a-scene');
-            const camera = document.getElementById('camera');
-            
-            // Bind camera click to request Pointer Lock
-            scene.addEventListener('click', function() {
-                if (!scene.is('vr-mode')) {
-                    const canvas = scene.canvas;
-                    if (canvas && canvas.requestPointerLock) {
-                        canvas.requestPointerLock();
-                    }
-                }
-            });
-
-            // Set up listener for pointer lock state to adjust camera look-controls
-            document.addEventListener('pointerlockchange', function() {
-                if (document.pointerLockElement === scene.canvas) {
-                    camera.setAttribute('look-controls', 'pointerLockEnabled', true);
-                    document.getElementById('cursor-crosshair').style.opacity = '1';
-                } else {
-                    camera.setAttribute('look-controls', 'pointerLockEnabled', false);
-                    document.getElementById('cursor-crosshair').style.opacity = '0.3';
-                }
-            }, false);
-
-            // Start lofi music automatically if desired (or let user toggle)
-            // Autoplay is blocked in some browsers, so we call toggleAudio here inside user interaction callback
-            setTimeout(() => {
-                toggleAudio();
-            }, 500);
+            setTimeout(toggleAudio, 500);
         }
 
-        // Hook VR Entering & Exiting states to customize HUD styling
         window.addEventListener('DOMContentLoaded', () => {
             const scene = document.querySelector('a-scene');
-            const vrIndicator = document.getElementById('vr-indicator');
-            const hudDock = document.getElementById('hud-dock');
-
             scene.addEventListener('enter-vr', () => {
-                // VR mode active
-                if (vrIndicator) vrIndicator.style.display = 'flex';
-                if (hudDock) hudDock.classList.remove('show'); // Hide screen UI overlay in VR
-                
-                // Notify controllers mapping
-                const rig = document.getElementById('rig');
-                rig.components['custom-controls'].setupVRControllerListeners();
-                showNotification('VR Headset Connected. Look around and use thumbsticks!');
+                document.getElementById('vr-indicator').style.display = 'flex';
+                document.getElementById('hud-dock').classList.remove('show');
+                document.getElementById('rig').components['custom-controls'].setupVRControllerListeners();
             });
-
             scene.addEventListener('exit-vr', () => {
-                // VR mode closed
-                if (vrIndicator) vrIndicator.style.display = 'none';
-                if (hudDock) hudDock.classList.add('show'); // Show screen controls back
-                showNotification('Returned to desktop browser mode.');
+                document.getElementById('vr-indicator').style.display = 'none';
+                document.getElementById('hud-dock').classList.add('show');
             });
         });
     </script>
